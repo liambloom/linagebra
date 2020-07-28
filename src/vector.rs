@@ -1,5 +1,13 @@
-use core::{ops::{Add, Sub, Mul, Neg, Index, IndexMut}, cmp::PartialEq};
-use std::fmt::{self, Display, Formatter};
+use std::{
+    ops::{Add, Sub, Mul, Neg, Index, IndexMut},
+    fmt::{self, Display, Formatter},
+    cmp::PartialEq,
+    iter::IntoIterator,
+    vec::IntoIter,
+    slice::{Iter, IterMut},
+    convert::{From, TryFrom},
+};
+use super::Matrix;
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Vector<T> {
@@ -23,30 +31,30 @@ impl<T> IndexMut<usize> for Vector<T> {
 impl<T> Add for Vector<T>
     where T: Add<T, Output = T> + Copy
 {
-    type Output = Option<Self>;
+    type Output = Self;
 
     fn add(self, o: Self) -> Self::Output {
         if self.len() == o.len() {
-            Some(Self {
+            Self {
                 v: self.v.iter().enumerate().map(|i|  *i.1 + o[i.0]).collect(),
-            })
+            }
         }
-        else { None }
+        else { panic!("Cannot add vectors of different sizes"); }
     }
 }
 
 impl<'a, 'b, T> Add<&'b Vector<T>> for &'a Vector<T>
     where T: Add<T, Output = T> + Copy
 {
-    type Output = Option<Vector<T>>;
+    type Output = Vector<T>;
 
     fn add(self, o: &'b Vector<T>) -> Self::Output {
         if self.len() == o.len() {
-            Some(Vector {
+            Vector {
                 v: self.v.iter().enumerate().map(|i|  *i.1 + o[i.0]).collect(),
-            })
+            }
         }
-        else { None }
+        else { panic!("Cannot subtract vectors of different sizes"); }
     }
 }
 
@@ -143,11 +151,66 @@ impl<T> Display for Vector<T>
     }
 }
 
-impl<T> Vector<T> {
-    pub fn new(v: Vec<T>) -> Self {
+impl<T> IntoIterator for Vector<T> {
+    type Item = T;
+    type IntoIter = IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.v.into_iter()
+    }
+}
+
+impl<T> TryFrom<Matrix<T>> for Vector<T> {
+    type Error = &'static str;
+
+    fn try_from(value: Matrix<T>) -> Result<Self, Self::Error> {
+        if value.get_columns() == 1 {
+            Ok(Self::from(value.column(0)))
+        }
+        else if value.get_rows() == 1 {
+            Ok(Self::from(value.row(0)))
+        }
+        else {
+            Err("Cannot convert 2D matrix to vector")
+        }
+    }
+}
+
+impl<T> From<Vec<T>> for Vector<T> {
+    fn from(v: Vec<T>) -> Self {
         Self { v }
     }
+}
+
+impl<T> Vector<T> {
     pub fn len(&self) -> usize {
         self.v.len()
+    }
+    pub fn vec(&self) -> &Vec<T> {
+        &self.v
+    }
+    pub fn iter(&self) -> Iter<T> {
+        self.v.iter()
+    }
+    pub fn iter_mut(&mut self) -> IterMut<T> {
+        self.v.iter_mut()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Vector;
+    const a: Vector<i32> = Vector{ v: vec![1, 2] };
+    const b: Vector<i32> = Vector{ v: vec![3, 5] };
+
+    #[test]
+    fn constructor() {
+        assert_eq!(Vector::new(vec![1, 2]), a);
+        assert_eq!(Vector::new(vec![3, 5]), b);
+    }
+
+    #[test]
+    fn add() {
+        assert_eq!(a + b, Vector::new(vec![4, 7]));
     }
 }

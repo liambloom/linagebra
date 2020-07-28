@@ -1,6 +1,10 @@
-use core::{ops::{Add, Sub, Mul, Neg, Index, IndexMut}, cmp::PartialEq};
-//use std::fmt::{self, Display, Formatter};
-use crate::vector::Vector;
+use std::{
+    ops::{Add, Sub, Mul, Neg, Index, IndexMut},
+    cmp::PartialEq,
+    convert::{From, TryFrom},
+    //fmt::{self, Display, Formatter},
+};
+use super::Vector;
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Matrix<T> {
@@ -94,10 +98,7 @@ impl<T> Mul<Vector<T>> for Matrix<T>
             }
             else {
                 let mut vecs: Vec<Vector<T>> = self.m.iter().enumerate().map(|i| i.1 * o[i.0]).collect();
-                // reversing it twice is soooo inefficient, but it's the best way I could think of
-                vecs.reverse();
-                let mut builder = vecs.pop().unwrap();
-                vecs.reverse();
+                let mut builder = vecs.remove(0);
                 for i in vecs.iter() {
                     builder = (&builder + i).unwrap();
                 }
@@ -108,15 +109,82 @@ impl<T> Mul<Vector<T>> for Matrix<T>
     }
 }
 
-/*impl<T> Matrix<T>
-    where T: Add + Sub + Neg + Clone + Copy + PartialEq
-{
-    fn row(&self, i: usize) -> Vec<T> {
-        self.m.iter().map(|e| e[i]).collect()
-    }
-    fn transpose(&self) -> Self {
+impl<T> From<Vector<T>> for Matrix<T> {
+    fn from(v: Vector<T>) -> Self {
         Self {
-            m: self.m
+            m: vec![v],
+            rows: v.len(),
+            columns: 1,
         }
     }
-}*/
+}
+
+impl<T> TryFrom<Vec<Vector<T>>> for Matrix<T> {
+    type Error = &'static str;
+
+    fn try_from(v: Vec<Vector<T>>) -> Result<Self, Self::Error> {
+        if v.len() == 0 {
+            Ok(Self {
+                m: Vec::new(),
+                rows: 0,
+                columns: 0,
+            })
+        }
+        else {
+            let len = v[0].len();
+            if v.iter().all(|vec| vec.len() == len) {
+                Ok(Self {
+                    m: v,
+                    rows: v.len(),
+                    columns: len,
+                }.transpose())
+            }
+            else {
+                Err("Cannot make Matrix from a jagged Vec")
+            }
+        }
+    }
+}
+
+impl<T> Matrix<T> {
+    pub fn row(&self, i: usize) -> Vec<T> {
+        self.m.iter().map(|e| e[i]).collect()
+    }
+    pub fn column(&self, i: usize) -> Vec<T> {
+        *self.m[i].vec()
+    }
+    pub fn get_rows(&self) -> usize {
+        self.rows
+    }
+    pub fn get_columns(&self) -> usize {
+        self.columns
+    }
+    pub fn transpose(&self) -> Self {
+        let rows = Vec::new();
+        for i in 0..self.rows {
+            rows.push(self.row(i).into());
+        }
+        Self {
+            m: rows,
+            columns: self.rows,
+            rows: self.columns,
+        }
+    }
+}
+
+impl<T> Matrix<T>
+    where T: From<i32> + Clone
+{
+    pub fn identity(size: usize) -> Self {
+        let m: Vec<Vector<T>> = vec![vec![0.into(); size].into(); size];
+        m.iter().enumerate().map(|i| {
+            i.1[i.0] = 1.into();
+            i.1
+        });
+        Self {
+            m,
+            columns: size,
+            rows: size,
+        }
+    }
+}
