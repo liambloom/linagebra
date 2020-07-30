@@ -2,9 +2,10 @@ use std::{
     ops::{Add, Sub, Mul, Neg, Index, IndexMut},
     cmp::PartialEq,
     convert::{From, TryFrom},
+    borrow::ToOwned,
     //fmt::{self, Display, Formatter},
 };
-use super::Vector;
+use crate::{Vector, /*diff_len::**/};
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Matrix<T> {
@@ -17,7 +18,7 @@ impl<T> Index<(usize, usize)> for Matrix<T> {
     type Output = T;
 
     fn index(&self, i: (usize, usize)) -> &Self::Output {
-        &self.m[i.1][i.0]
+        &self.m[i.1 - 1][i.0]
     }
 }
 
@@ -28,14 +29,14 @@ impl<T> IndexMut<(usize, usize)> for Matrix<T> {
 }
 
 impl<T> Add for Matrix<T>
-    where T: Add<T, Output = T> + Copy
+    where T: Add<T, Output = T> + From<i32> + Copy
 {
     type Output = Option<Self>;
 
     fn add(self, o: Self) -> Self::Output {
         if self.rows == o.rows && self.columns == o.columns {
             Some(Self {
-                m: self.m.iter().enumerate().map(|i|  (i.1 + &o.m[i.0]).unwrap()).collect(),
+                m: self.m.iter().enumerate().map(|i|  (i.1 + &o.m[i.0])).collect(),
                 ..self
             })
         }
@@ -44,14 +45,14 @@ impl<T> Add for Matrix<T>
 }
 
 impl<T> Sub for Matrix<T>
-    where T: Sub<T, Output = T> + Copy
+    where T: Sub<T, Output = T> + From<i32> + Copy
 {
     type Output = Option<Self>;
 
     fn sub(self, o: Self) -> Self::Output {
         if self.rows == o.rows && self.columns == o.columns {
             Some(Self {
-                m: self.m.iter().enumerate().map(|i|  (i.1 - &o.m[i.0]).unwrap()).collect(),
+                m: self.m.iter().enumerate().map(|i|  (i.1 - &o.m[i.0])).collect(),
                 ..self
             })
         }
@@ -87,20 +88,20 @@ impl<T, U> Mul<U> for Matrix<T>
 }
 
 impl<T> Mul<Vector<T>> for Matrix<T>
-    where T: Add<T, Output = T> + Mul<T, Output = T> + Copy
+    where T: Add<T, Output = T> + Mul<T, Output = T> + From<i32> + Copy
 {
     type Output = Option<Vector<T>>;
 
     fn mul(self, o: Vector<T>) -> Self::Output {
         if self.rows == o.len() {
             if self.rows == 0 {
-                Some(Vector::new(Vec::new()))
+                Some(Vector::from(Vec::new()))
             }
             else {
                 let mut vecs: Vec<Vector<T>> = self.m.iter().enumerate().map(|i| i.1 * o[i.0]).collect();
                 let mut builder = vecs.remove(0);
                 for i in vecs.iter() {
-                    builder = (&builder + i).unwrap();
+                    builder = &builder + i;
                 }
                 Some(builder)
             }
@@ -112,14 +113,15 @@ impl<T> Mul<Vector<T>> for Matrix<T>
 impl<T> From<Vector<T>> for Matrix<T> {
     fn from(v: Vector<T>) -> Self {
         Self {
+            rows: v.len(), // This need to be before m because m moves v into the Vec
             m: vec![v],
-            rows: v.len(),
             columns: 1,
         }
     }
 }
 
-impl<T> TryFrom<Vec<Vector<T>>> for Matrix<T> {
+impl<T> TryFrom<Vec<Vector<T>>> for Matrix<T>
+    where T: Copy {
     type Error = &'static str;
 
     fn try_from(v: Vec<Vector<T>>) -> Result<Self, Self::Error> {
@@ -134,8 +136,8 @@ impl<T> TryFrom<Vec<Vector<T>>> for Matrix<T> {
             let len = v[0].len();
             if v.iter().all(|vec| vec.len() == len) {
                 Ok(Self {
-                    m: v,
                     rows: v.len(),
+                    m: v,
                     columns: len,
                 }.transpose())
             }
@@ -146,21 +148,34 @@ impl<T> TryFrom<Vec<Vector<T>>> for Matrix<T> {
     }
 }
 
+impl<T> TryFrom<Vec<Vec<T>>> for Matrix<T>
+    where T: Copy {
+    type Error = &'static str;
+
+    fn try_from(v: Vec<Vec<T>>) -> Result<Self, Self::Error> {
+        Self::try_from(v.iter().map(|vec| Vector::from(vec.to_owned())).collect::<Vec<Vector<T>>>())
+    }
+}
+
 impl<T> Matrix<T> {
-    pub fn row(&self, i: usize) -> Vec<T> {
-        self.m.iter().map(|e| e[i]).collect()
-    }
-    pub fn column(&self, i: usize) -> Vec<T> {
-        *self.m[i].vec()
-    }
     pub fn get_rows(&self) -> usize {
         self.rows
     }
     pub fn get_columns(&self) -> usize {
         self.columns
     }
+}
+impl<T> Matrix<T>
+    where T: Copy 
+{
+    pub fn row(&self, i: usize) -> Vec<T> {
+        self.m.iter().map(|e| e[i]).collect()
+    }
+    pub fn column(&self, i: usize) -> Vec<T> {
+        self.m[i].vec().to_owned()
+    }
     pub fn transpose(&self) -> Self {
-        let rows = Vec::new();
+        let mut rows: Vec<Vector<T>> = Vec::new();
         for i in 0..self.rows {
             rows.push(self.row(i).into());
         }
@@ -173,14 +188,13 @@ impl<T> Matrix<T> {
 }
 
 impl<T> Matrix<T>
-    where T: From<i32> + Clone
+    where T: From<i32> + Clone,
 {
     pub fn identity(size: usize) -> Self {
-        let m: Vec<Vector<T>> = vec![vec![0.into(); size].into(); size];
-        m.iter().enumerate().map(|i| {
-            i.1[i.0] = 1.into();
-            i.1
-        });
+        let mut m: Vec<Vector<T>> = vec![vec![0.into(); size].into(); size];
+        for i in m.iter_mut().enumerate() {
+            i.1[i.0] = 1.into()
+        }
         Self {
             m,
             columns: size,
