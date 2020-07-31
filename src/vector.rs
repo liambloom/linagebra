@@ -7,7 +7,7 @@ use std::{
     slice::{Iter, IterMut},
     convert::{From, TryFrom},
 };
-use crate::{Matrix/*, diff_len::**/};
+use crate::{Matrix, INDEX_START/*, diff_len::**/};
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Vector<T> {
@@ -18,13 +18,13 @@ impl<T> Index<usize> for Vector<T> {
     type Output = T;
 
     fn index(&self, i: usize) -> &Self::Output {
-        &self.v[i - 1]
+        &self.v[i - INDEX_START]
     }
 }
 
 impl<T> IndexMut<usize> for Vector<T> {
     fn index_mut(&mut self, i: usize) -> &mut Self::Output {
-        &mut self.v[i]
+        &mut self.v[i - INDEX_START]
     }
 }
 
@@ -36,7 +36,7 @@ impl<T> Add for Vector<T>
     fn add(self, o: Self) -> Self::Output {
         if self.len() == o.len() {
             Self {
-                v: self.v.iter().enumerate().map(|i|  *i.1 + o[i.0]).collect(),
+                v: self.v.iter().enumerate().map(|i|  *i.1 + o[i.0 + INDEX_START]).collect(),
             }
         }
         else {
@@ -55,7 +55,7 @@ impl<'a, T> Add<&'a Vector<T>> for &'a Vector<T>
     fn add(self, o: &'a Vector<T>) -> Self::Output {
         if self.len() == o.len() {
             Vector {
-                v: self.v.iter().enumerate().map(|i|  *i.1 + o[i.0]).collect(),
+                v: self.v.iter().enumerate().map(|i|  *i.1 + o[i.0 + INDEX_START]).collect(),
             }
         }
         else { 
@@ -74,7 +74,7 @@ impl<T> Sub for Vector<T>
     fn sub(self, o: Self) -> Self::Output {
         if self.len() == o.len() {
             Self {
-                v: self.v.iter().enumerate().map(|i|  *i.1 - o[i.0]).collect(),
+                v: self.v.iter().enumerate().map(|i|  *i.1 - o[i.0 + INDEX_START]).collect(),
             }
         }
         else { 
@@ -93,7 +93,7 @@ impl<'a, T> Sub<&'a Vector<T>> for &'a Vector<T>
     fn sub(self, o: &'a Vector<T>) -> Self::Output {
         if self.len() == o.len() {
             Vector {
-                v: self.v.iter().enumerate().map(|i|  *i.1 - o[i.0]).collect(),
+                v: self.v.iter().enumerate().map(|i|  *i.1 - o[i.0 + INDEX_START]).collect(),
             }
         }
         else { 
@@ -158,12 +158,12 @@ impl<T> Display for Vector<T>
     where T: Display 
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut s = String::new();
+        write!(f, "<")?;
         for i in self.v.iter().enumerate() {
-            if i.0 != 0 { s.push_str(", "); }
-            s.push_str(format!("{}", i.1).as_str());
+            if i.0 != 0 { write!(f, ", ")? }
+            write!(f, "{}", i.1)?;
         }
-        write!(f, "<{}>", s)
+        write!(f, ">")
     }
 }
 
@@ -182,10 +182,10 @@ impl<T> TryFrom<Matrix<T>> for Vector<T>
 
     fn try_from(value: Matrix<T>) -> Result<Self, Self::Error> {
         if value.get_columns() == 1 {
-            Ok(Self::from(value.column(0)))
+            Ok(Self::from(value.column_clone(0)))
         }
         else if value.get_rows() == 1 {
-            Ok(Self::from(value.row(0)))
+            Ok(Self::from(value.row_clone(0)))
         }
         else {
             Err("Cannot convert 2D matrix to vector")
@@ -243,18 +243,131 @@ impl<T> Vector<T>
 
 #[cfg(test)]
 mod tests {
-    use super::Vector;
-    const a: Vector<i32> = Vector{ v: vec![1, 2] };
-    const b: Vector<i32> = Vector{ v: vec![3, 5] };
+    use super::{Vector, Matrix, TryFrom, IntoIter};
+    const A: [i32; 2] = [1, 2];
+    const B: [i32; 2] = [3, 5];
+
+    fn v(arr: [i32; 2]) -> Vector<i32> {
+        Vector::from(Vec::from(arr))
+    }
+
+    fn assert_eq_iter<T: PartialEq>(mut a: IntoIter<T>, mut b: IntoIter<T>) {
+        assert!(a.all(|e| e == b.next().unwrap()));
+    }
 
     #[test]
-    fn constructor() {
-        assert_eq!(Vector::from(vec![1, 2]), a);
-        assert_eq!(Vector::from(vec![3, 5]), b);
+    fn assert_eq_iter_test() {
+        let v = vec![1, 2, 3];
+        assert_eq_iter(v.clone().into_iter(), v.into_iter());
+    }
+
+    #[test]
+    fn index() {
+        let a = v(A);
+        let b = v(B);
+        assert_eq!(a[1], 1);
+        assert_eq!(a[2], 2);
+        assert_eq!(b[1], 3);
+        assert_eq!(b[2], 5);
+    }
+
+    #[test]
+    fn index_mut() {
+        let mut c = v(A);
+        c[1] = 3;
+        assert_eq!(c, v([3, 2]));
     }
 
     #[test]
     fn add() {
-        assert_eq!(a + b, Vector::from(vec![4, 7]));
+        assert_eq!(v(A) + v(B), v([4, 7]));
+    }
+
+    #[test]
+    fn add_ref() {
+        assert_eq!(&v(A) + &v(B), v([4, 7]))
+    }
+
+    #[test]
+    fn sub() {
+        assert_eq!(v(A) - v(B), v([-2, -3]));
+    }
+
+    #[test]
+    fn sub_ref() {
+        assert_eq!(&v(A) - &v(B), v([-2, -3]));
+    }
+
+    #[test]
+    fn neg() {
+        assert_eq!(-v(A), v([-1, -2]));
+        assert_eq!(-v(B), v([-3, -5]));
+    }
+
+    #[test]
+    fn neg_ref() {
+        assert_eq!(-&v(A), v([-1, -2]));
+        assert_eq!(-&v(B), v([-3, -5]));
+    }
+
+    #[test]
+    fn mul() {
+        assert_eq!(v(A) * 2, v([2, 4]));
+        assert_eq!(v(B) * -3, v([-9, -15]));
+    }
+
+    #[test]
+    fn mul_ref() {
+        assert_eq!(&v(A) * 2, v([2, 4]));
+        assert_eq!(&v(B) * -3, v([-9, -15]));
+    }
+
+    #[test]
+    fn display() {
+        assert_eq!(format!("{}", v(A)), "<1, 2>");
+        assert_eq!(format!("{}", v(B)), "<3, 5>");
+    }
+
+    #[test]
+    fn into_iter() {
+        let vec_a = v(A).into_iter();
+        let arr_a = Vec::from(A).into_iter();
+        assert_eq_iter(vec_a, arr_a);
+
+        let vec_b = v(B).into_iter();
+        let arr_b = Vec::from(B).into_iter();
+        assert_eq_iter(vec_b, arr_b);
+    }
+
+    /*#[test]
+    fn iter() {
+        let vec_a = v(A).iter();
+        let arr_a = Vec::from(A).iter();
+        assert!(vec_a.all(|e| e == arr_a.next().unwrap()));
+
+        let vec_b = v(B).iter();
+        let arr_b = Vec::from(B).iter();
+        assert!(vec_b.all(|e| e == arr_b.next().unwrap()));
+    }*/
+
+    /*#[test]
+    fn iter_mut() {
+        let a = v(A).iter_mut();
+        for e in a {
+            *e += 1;
+        }
+        assert!(a.all(|e))
+    }*/
+
+    #[test]
+    fn from_vec() {
+        assert_eq!(Vector::from(vec![1, 2]), Vector{v: Vec::from(A)});
+        assert_eq!(Vector::from(vec![3, 5]), Vector{v: Vec::from(B)});
+    }
+
+    #[test]
+    fn try_from_matrix() {
+        assert_eq!(Vector::try_from(Matrix::from(v(A))), Ok(v(A)));
+        assert_eq!(Vector::try_from(Matrix::square(vec![1, 2, 3, 4], 2)), Err("Cannot convert 2D matrix to vector"));
     }
 }

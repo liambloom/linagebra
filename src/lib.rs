@@ -7,3 +7,5 @@ mod matrix;
 pub use vector::Vector;
 pub use matrix::Matrix;
 //pub use diff_len::*;
+
+const INDEX_START: usize = 1;
