@@ -1,11 +1,12 @@
 use std::{
     ops::{Add, Sub, Mul, Neg, Index, IndexMut},
-    cmp::{PartialEq},
+    cmp::PartialEq,
     convert::{From, TryFrom},
     borrow::ToOwned,
     fmt::{self, Display, Formatter},
+    string::ToString,
 };
-use crate::{Vector, INDEX_START/*diff_len::**/};
+use crate::{Vector, INDEX_START};
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Matrix<T> {
@@ -40,7 +41,9 @@ impl<T> Add for Matrix<T>
                 ..self
             })
         }
-        else { None }
+        else {
+            None 
+        }
     }
 }
 
@@ -125,21 +128,23 @@ impl<T> TryFrom<Vec<Vector<T>>> for Matrix<T>
     type Error = &'static str;
 
     fn try_from(v: Vec<Vector<T>>) -> Result<Self, Self::Error> {
-        if v.len() == 0 {
+        if v.len() == 0 || v.len() == 1 {
             Ok(Self {
+                rows: v.len(),
+                columns: v.len(),
                 m: v,
-                rows: 0,
-                columns: 0,
             })
         }
         else {
             let len = v[0].len();
             if v.iter().all(|vec| vec.len() == len) {
-                Ok(Self {
-                    rows: v.len(),
+                let mut r = Self {
+                    columns: v.len(),
                     m: v,
-                    columns: len,
-                }.transpose())
+                    rows: len,
+                };
+                r.transpose();
+                Ok(r)
             }
             else {
                 Err("Cannot make Matrix from a jagged Vec")
@@ -159,34 +164,31 @@ impl<T> TryFrom<Vec<Vec<T>>> for Matrix<T>
 }
 
 impl<T> Display for Matrix<T>
-    where T: Display + std::fmt::Debug
+    where T: ToString
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        println!("{:?}", self);
         if self.rows == 0 {
             write!(f, "[]")
         }
         else {
             let mut strs: Vec<Vec<String>> = Vec::with_capacity(self.rows);
             for i in 0..self.rows {
-                strs.push(self.row(i + INDEX_START).iter().map(|e| format!("{}", e)).collect());
+
+                strs.push(self.row(i + INDEX_START).iter().map(|e| e.to_string()).collect());
             }
             if self.rows == 1 {
-                let mut formatted = String::new();
-                for i in strs[0].iter().enumerate() {
-                    if i.0 != 0 { formatted += ", "; }
-                    formatted += i.1;
+                write!(f, "[")?;
+                for i in strs[0].iter() {
+                    write!(f, " {} ", i)?;
                 }
-                write!(f, "[{}]", formatted)
+                write!(f, "]")
             }
             else {
-                let mut sizes = Vec::with_capacity(self.columns);
+                let mut sizes = vec![0; self.columns];
                 for row in strs.iter() {
-                    let mut max = 0;
-                    for e in row {
-                        max = max.max(e.len());
+                    for e in row.iter().enumerate() {
+                        sizes[e.0] = sizes[e.0].max(e.1.len());
                     }
-                    sizes.push(max);
                 }
                 let mut spaces = 0;
                 for size in sizes.iter() {
@@ -194,12 +196,12 @@ impl<T> Display for Matrix<T>
                 }
                 write!(f, " _{}_ \n", " ".repeat(spaces))?;
                 for row in strs.iter().enumerate() {
-                    let is_last = row.0 == strs.len() - 1;
-                    write!(f, "|{}", if is_last { "_" } else {" "})?;
+                    let padding = if row.0 == strs.len() - 1 { "_" } else {" "};
+                    write!(f, "|{}", padding)?;
                     for s in row.1.iter().enumerate() {
                         write!(f, " {:^width$} ", s.1, width = sizes[s.0])?;
                     }
-                    write!(f, "{}|\n", if is_last { "_" } else {" "})?;
+                    write!(f, "{}|\n", padding)?;
                 }
                 Ok(())
             }
@@ -226,9 +228,12 @@ impl<T> Matrix<T> {
     pub fn column_mut(&mut self, i: usize) -> Vec<&mut T> {
         self.m[i - INDEX_START].iter_mut().collect()
     }
+    pub fn is_square(&self) -> bool {
+        self.rows == self.columns
+    }
 }
 impl<T> Matrix<T>
-    where T: Copy 
+    where T: Copy
 {
     pub fn row_clone(&self, i: usize) -> Vec<T> {
         self.m.iter().map(|e| e[i]).collect()
@@ -236,16 +241,21 @@ impl<T> Matrix<T>
     pub fn column_clone(&self, i: usize) -> Vec<T> {
         self.m[i - INDEX_START].vec().to_owned()
     }
-    pub fn transpose(&self) -> Self {
-        let mut rows: Vec<Vector<T>> = Vec::with_capacity(self.columns);
-        for i in 0..self.columns {
-            rows.push(self.row_clone(i + INDEX_START).into());
+}
+
+impl<T> Matrix<T>
+    where T: Copy
+{
+    pub fn transpose(&mut self) {
+        let mut columns: Vec<Vector<T>> = Vec::with_capacity(self.columns);
+        for i in 0..self.rows {
+            columns.push(self.row_clone(i + INDEX_START).into());
         }
-        Self {
-            m: rows,
+        *self = Self {
+            m: columns,
             columns: self.rows,
             rows: self.columns,
-        }
+        };
     }
 }
 
@@ -266,18 +276,17 @@ impl<T> Matrix<T>
 }
 
 impl<T> Matrix<T>
-    where T: Copy + Clone + std::fmt::Debug
+    where T: Copy + Clone
 {
-    pub fn from_vec(v: Vec<T>, columns: usize, rows: usize) -> Self {
+    pub fn from_vec(v: Vec<T>, rows: usize, columns: usize) -> Self {
         if columns * rows != v.len() {
             panic!("A {}x{} vector must have {} elements, received Vec with {} elements", rows, columns, rows * columns, v.len());
         }
         else {
             let mut vecs = Vec::with_capacity(rows);
-            for i in 0..columns {
-                vecs.push(Vec::from(&v[rows*i..rows*(i + 1)]));
+            for i in 0..rows {
+                vecs.push(Vec::from(&v[columns*i..columns*(i + 1)]));
             }
-            println!("{:?}", vecs);
             Self::try_from(vecs).unwrap()
         }
     }
@@ -287,5 +296,46 @@ impl<T> Matrix<T>
             panic!("A square matrix can only be made from a Vec whose length is a perfect square, received length {}", v.len());
         }
         Self::from_vec(v, s as usize, s as usize)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Vector, Matrix};
+    type TestMatrix = [i32; 4];
+    const A: TestMatrix = [1, 2, 3, 4];
+    const B: TestMatrix = [5, 6, 7, 8];
+
+    fn m(a2d: TestMatrix) -> Matrix<i32> {
+        Matrix::square(Vec::from(&a2d[0..4]))
+    }
+
+    mod constructors {
+        use super::*;
+
+        #[test]
+        fn test_m() {
+            assert_eq!(Matrix{ m: vec![Vector::from(vec![1, 3]), Vector::from(vec![2, 4])], rows: 2, columns: 2}, m(A));
+            assert_eq!(Matrix{ m: vec![Vector::from(vec![5, 7]), Vector::from(vec![6, 8])], rows: 2, columns: 2}, m(B));
+        }
+
+        #[test]
+        fn from_vector() {
+            assert_eq!(Matrix::from_vec(A.into(), 2, 2), m(A));
+            assert_eq!(
+                Matrix::from_vec(vec![1, 2, 3, 4, 5, 6], 3, 2), 
+                Matrix{ m: vec![Vector::from(vec![1, 3, 5]), Vector::from(vec![2, 4, 6])], rows: 3, columns: 2}
+            );
+        }
+
+        #[test]
+        fn try_from_vec_vector() {
+            
+        }
+
+        #[test]
+        fn try_from_vec_vec() {
+
+        }
     }
 }
